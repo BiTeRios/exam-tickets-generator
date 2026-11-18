@@ -21,6 +21,9 @@ from pathlib import Path
 from typing import Iterable
 
 from docx import Document
+from docx.oxml.ns import qn
+from docx.table import Table
+from docx.text.paragraph import Paragraph
 
 from . import SourceFileError
 
@@ -28,7 +31,8 @@ log = logging.getLogger(__name__)
 
 QUESTIONS_PER_TICKET = 3
 HEADER_RE = re.compile(r"^\s*билет\s*№?\s*(\d+)\s*[.:]?\s*$", re.IGNORECASE)
-QUESTION_RE = re.compile(r"^\s*\d+\s*[.)]\s*(\S.*)$")
+# (?!\d) — чтобы «2.5 секунды» не превратилось в «5 секунды».
+QUESTION_RE = re.compile(r"^\s*\d+\s*[.)](?!\d)\s*(\S.*)$")
 
 
 @dataclass(frozen=True)
@@ -46,7 +50,7 @@ def parse_tickets(path: str | os.PathLike) -> list[Ticket]:
     except Exception as error:  # битый файл, не docx, нет доступа
         raise SourceFileError(f"Не удалось прочитать {path.name}: {error}") from error
     return parse_paragraphs(
-        (paragraph.text, _is_auto_numbered(paragraph)) for paragraph in document.paragraphs
+        (paragraph.text, _is_auto_numbered(paragraph)) for paragraph in _iter_paragraphs(document)
     )
 
 
@@ -78,7 +82,8 @@ def parse_paragraphs(paragraphs: Iterable[tuple[str, bool]]) -> list[Ticket]:
             seen_numbers.add(number)
 
     for index, (raw_text, auto_numbered) in enumerate(paragraphs, start=1):
-        text = raw_text.strip()
+        # Мягкий перенос (Shift+Enter) и табуляции внутри абзаца превращаем в пробелы.
+        text = " ".join(raw_text.split())
         if not text:
             continue
 
@@ -91,10 +96,11 @@ def parse_paragraphs(paragraphs: Iterable[tuple[str, bool]]) -> list[Ticket]:
                 number, skipping = None, True
             continue
 
-        question = QUESTION_RE.match(text)
+        question = None if auto_numbered else QUESTION_RE.match(text)
         if question or auto_numbered:
             if number is not None:
-                questions.append(question.group(1).strip() if question else text)
+                # У автонумерации Word номер не входит в текст абзаца.
+                questions.append(text if auto_numbered else question.group(1).strip())
             elif not skipping:
                 log.error("Абзац %d: вопрос до первого заголовка билета — пропущен: %r", index, text)
             continue
@@ -109,9 +115,22 @@ def parse_paragraphs(paragraphs: Iterable[tuple[str, bool]]) -> list[Ticket]:
     return tickets
 
 
+def _iter_paragraphs(document) -> Iterable[Paragraph]:
+    """Абзацы документа по порядку, включая абзацы внутри таблиц."""
+    for block in document.element.body.iterchildren():
+        if block.tag == qn("w:p"):
+            yield Paragraph(block, document)
+        elif block.tag == qn("w:tbl"):
+            for row in Table(block, document).rows:
+                for cell in row.cells:
+                    yield from cell.paragraphs
+
+
 def _is_auto_numbered(paragraph) -> bool:
     p_pr = paragraph._p.pPr
     if p_pr is not None and p_pr.numPr is not None:
-        return True
+        num_id = p_pr.numPr.numId
+        # numId = 0 означает «нумерация снята».
+        return num_id is None or num_id.val != 0
     style_name = paragraph.style.name if paragraph.style is not None else ""
     return style_name.startswith("List Number")
