@@ -19,20 +19,20 @@ class TicketApp:
         self.result_window: ResultWindow | None = None
 
         root.title("Генератор экзаменационных билетов")
-        root.minsize(460, 260)
+        root.minsize(520, 260)
         frame = ttk.Frame(root, padding=PAD * 2)
         frame.grid(sticky="nsew")
         root.columnconfigure(0, weight=1)
         root.rowconfigure(0, weight=1)
         frame.columnconfigure(1, weight=1)
 
-        ttk.Label(frame, text="Группа:").grid(row=0, column=0, sticky="w", pady=PAD)
+        ttk.Label(frame, text="Группа:").grid(row=0, column=0, sticky="w", pady=PAD, padx=(0, PAD))
         self.group_var = tk.StringVar()
         self.group_box = ttk.Combobox(frame, textvariable=self.group_var, state="readonly")
         self.group_box.grid(row=0, column=1, sticky="ew", pady=PAD)
         self.group_box.bind("<<ComboboxSelected>>", self.on_group_selected)
 
-        ttk.Label(frame, text="Студент:").grid(row=1, column=0, sticky="w", pady=PAD)
+        ttk.Label(frame, text="Студент:").grid(row=1, column=0, sticky="w", pady=PAD, padx=(0, PAD))
         self.student_var = tk.StringVar()
         self.student_box = ttk.Combobox(frame, textvariable=self.student_var, state="disabled")
         self.student_box.grid(row=1, column=1, sticky="ew", pady=PAD)
@@ -83,6 +83,8 @@ class TicketApp:
 
     def on_student_selected(self, _event=None) -> None:
         self.controller.select_student(self.student_box.current())
+        if self.controller.can_generate:
+            self.status_var.set("Нажмите «Сгенерировать билет».")
         self._update_button()
 
     def _set_students(self, students) -> None:
