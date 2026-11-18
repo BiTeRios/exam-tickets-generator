@@ -95,7 +95,7 @@ def _load(path: Path, read_only: bool) -> Workbook:
     try:
         return load_workbook(path, read_only=read_only)
     except PermissionError as error:
-        raise ResultsLockedError(f"Файл {path.name} открыт в другой программе (например, в Excel).") from error
+        raise ResultsLockedError(f"Файл {path.name} открыт в другой программе (например, в Excel) или защищён от записи.") from error
     except Exception as error:
         raise ResultsFileError(
             f"Файл {path} повреждён и не читается ({error}). "
@@ -126,7 +126,7 @@ def _save_atomically(workbook: Workbook, path: Path) -> None:
             os.replace(tmp_name, path)
         except PermissionError as error:
             raise ResultsLockedError(
-                f"Файл {path.name} открыт в другой программе (например, в Excel)."
+                f"Файл {path.name} открыт в другой программе (например, в Excel) или защищён от записи."
             ) from error
     except ResultsError:
         raise

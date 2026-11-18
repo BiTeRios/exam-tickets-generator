@@ -92,3 +92,56 @@ def test_corrupted_file_raises_source_error(tmp_path):
     path.write_bytes(b"not a docx")
     with pytest.raises(SourceFileError):
         parse_tickets(path)
+
+
+def test_soft_line_break_inside_question_keeps_ticket():
+    lines = ["Билет 1", "1. Первая строка\nпродолжение", "2. b", "3. c"]
+    assert parse_paragraphs(plain(lines))[0].questions[0] == "Первая строка продолжение"
+
+
+def test_question_text_starting_with_decimal_number_is_not_cut():
+    lines = ["Билет 1", "1. a", "2. b", "3. Почему 2.5 секунды?"]
+    assert parse_paragraphs(plain(lines))[0].questions[2] == "Почему 2.5 секунды?"
+    auto = [("Билет 2", False), ("1.5 ГГц — это много?", True), ("x", True), ("y", True)]
+    assert parse_paragraphs(auto)[0].questions[0] == "1.5 ГГц — это много?"
+
+
+def test_tickets_inside_word_table(tmp_path):
+    from docx import Document
+
+    document = Document()
+    document.add_paragraph("Билет 1")
+    for i in range(1, 4):
+        document.add_paragraph(f"{i}. q{i}")
+    table = document.add_table(rows=4, cols=1)
+    for row, text in zip(table.rows, ["Билет 2", "1. x", "2. y", "3. z"]):
+        row.cells[0].text = text
+    path = tmp_path / "tickets.docx"
+    document.save(path)
+
+    assert [(t.number, t.questions) for t in parse_tickets(path)] == [
+        (1, ("q1", "q2", "q3")),
+        (2, ("x", "y", "z")),
+    ]
+
+
+def test_removed_numbering_numid_zero_is_not_a_question(tmp_path):
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    document = Document()
+    document.add_paragraph("Билет 1")
+    for i in range(1, 4):
+        document.add_paragraph(f"{i}. q{i}")
+    plain_paragraph = document.add_paragraph("просто текст")
+    num_pr = OxmlElement("w:numPr")
+    num_id = OxmlElement("w:numId")
+    num_id.set(qn("w:val"), "0")
+    num_pr.append(num_id)
+    plain_paragraph._p.get_or_add_pPr().append(num_pr)
+    path = tmp_path / "tickets.docx"
+    document.save(path)
+
+    # «просто текст» — не вопрос, а нераспознанный заголовок; билет 1 цел
+    assert [t.number for t in parse_tickets(path)] == [1]
