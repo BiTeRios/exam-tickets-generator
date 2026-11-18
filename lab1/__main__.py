@@ -25,6 +25,8 @@ def main() -> int:
         help=f"путь к журналу Excel (по умолчанию {DEFAULT_JOURNAL})",
     )
     args = parser.parse_args()
+    # При выводе в файл/канал кодировка может не вместить введённые символы.
+    sys.stdout.reconfigure(errors="replace")
     try:
         run(args.journal, system_getch(), _write, random.SystemRandom())
     except KeyboardInterrupt:

@@ -115,3 +115,15 @@ def test_locked_journal_can_be_skipped_with_escape(tmp_path, monkeypatch):
 
     assert "Запись НЕ сохранена" in screen.text
     assert "Работа завершена." in screen.text
+
+
+def test_corrupted_journal_is_reported_and_app_keeps_running(tmp_path):
+    path = tmp_path / "journal.xlsx"
+    path.write_bytes(b"garbage")
+    screen = Screen()
+    # студент, ESC = не сохранять, затем ещё ESC = выход
+    run(path, keys(student("A", "a"), "\x1b", "\x1b"), screen, random.Random(1))
+
+    assert "повреждён" in screen.text
+    assert "Запись НЕ сохранена" in screen.text
+    assert path.read_bytes() == b"garbage"

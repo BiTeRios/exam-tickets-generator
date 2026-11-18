@@ -10,7 +10,7 @@ import random
 from pathlib import Path
 
 from .console_input import GetCh, Write, EscapePressed, ask_non_empty, wait_enter_or_esc
-from .journal import JournalLockedError, append_record
+from .journal import JournalError, JournalLockedError, append_record
 
 TICKET_MIN = 1
 TICKET_MAX = 20
@@ -29,7 +29,7 @@ def save_with_retry(
     getch: GetCh,
     write: Write,
 ) -> bool:
-    """Сохраняет запись. Если файл занят, просит закрыть его и повторяет.
+    """Сохраняет запись. Если не вышло, объясняет причину и предлагает повторить.
 
     Возвращает True, если запись сохранена, False, если пользователь отказался.
     """
@@ -37,11 +37,11 @@ def save_with_retry(
         try:
             append_record(journal_path, last_name, first_name, ticket)
             return True
-        except JournalLockedError:
+        except JournalError as error:
+            action = "Закройте файл" if isinstance(error, JournalLockedError) else "Исправьте проблему"
             write(
-                f"Не удалось записать в {journal_path.name}: файл открыт в другой "
-                "программе (например, в Excel).\n"
-                "Закройте файл и нажмите Enter для повтора или ESC, чтобы не сохранять эту запись.\n"
+                f"Запись не сохранена. {error}\n"
+                f"{action} и нажмите Enter для повтора или ESC, чтобы не сохранять эту запись.\n"
             )
             if not wait_enter_or_esc(getch):
                 write("Запись НЕ сохранена в журнал.\n")
