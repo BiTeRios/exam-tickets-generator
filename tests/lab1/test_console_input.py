@@ -1,8 +1,10 @@
 import pytest
 
 from lab1.console_input import (
+    SPECIAL_KEY,
     EscapePressed,
     ask_non_empty,
+    make_windows_getch,
     read_line,
     wait_enter_or_esc,
 )
@@ -45,8 +47,7 @@ def test_escape_as_first_key_aborts_input():
 
 
 def test_special_keys_are_skipped():
-    # \xe0H — стрелка вверх, \x00; — F1
-    assert read_line("> ", keys("A\xe0HB\x00;C\r"), Screen()) == "ABC"
+    assert read_line("> ", keys("A", SPECIAL_KEY, "B", SPECIAL_KEY, "C\r"), Screen()) == "ABC"
 
 
 def test_ctrl_c_raises_keyboard_interrupt():
@@ -65,3 +66,38 @@ def test_ask_non_empty_repeats_on_empty_and_strips():
 def test_wait_enter_or_esc():
     assert wait_enter_or_esc(keys("x\r")) is True
     assert wait_enter_or_esc(keys("x\x1b")) is False
+
+
+def windows_getch(sequence, pending_after):
+    """Имитация msvcrt: pending_after — индексы символов, после которых буфер не пуст."""
+    stream = list(sequence)
+    position = {"i": 0}
+
+    def getwch():
+        ch = stream[position["i"]]
+        position["i"] += 1
+        return ch
+
+    def kbhit():
+        return position["i"] - 1 in pending_after
+
+    return make_windows_getch(getwch, kbhit)
+
+
+def test_windows_arrow_key_becomes_special_key():
+    # стрелка вверх приходит как E0 + 'H', код уже лежит в буфере
+    getch = windows_getch("\xe0HA", pending_after={0})
+    assert getch() == SPECIAL_KEY
+    assert getch() == "A"
+
+
+def test_windows_function_key_with_zero_prefix():
+    getch = windows_getch("\x00;B", pending_after=set())
+    assert getch() == SPECIAL_KEY
+    assert getch() == "B"
+
+
+def test_windows_letter_a_grave_is_kept():
+    # буква «à» — тот же код E0, но после неё буфер пуст
+    getch = windows_getch("\xe0lex\r", pending_after=set())
+    assert read_line("> ", getch, Screen()) == "\xe0lex"

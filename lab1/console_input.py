@@ -13,8 +13,11 @@ ESC = "\x1b"
 ENTER_KEYS = ("\r", "\n")
 BACKSPACE_KEYS = ("\b", "\x7f")
 CTRL_C = "\x03"
-# На Windows стрелки, F1..F12 и т.п. приходят парой: префикс + код клавиши.
-SPECIAL_KEY_PREFIXES = ("\x00", "\xe0")
+# Стрелки, F1..F12 и т.п. getch-обёртка превращает в этот один символ.
+SPECIAL_KEY = "\x00"
+# Windows отдаёт спецклавиши парой: префикс + код клавиши.
+WINDOWS_PREFIX_ZERO = "\x00"
+WINDOWS_PREFIX_E0 = "\xe0"  # он же обычная буква «à»
 
 GetCh = Callable[[], str]
 Write = Callable[[str], None]
@@ -45,8 +48,7 @@ def read_line(prompt: str, getch: GetCh, write: Write) -> str:
                 chars.pop()
                 write("\b \b")
             continue
-        if key in SPECIAL_KEY_PREFIXES:
-            getch()  # пропускаем код специальной клавиши
+        if key == SPECIAL_KEY:
             continue
         if key.isprintable():
             chars.append(key)
@@ -72,8 +74,6 @@ def wait_enter_or_esc(getch: GetCh) -> bool:
             return False
         if key == CTRL_C:
             raise KeyboardInterrupt
-        if key in SPECIAL_KEY_PREFIXES:
-            getch()
 
 
 def system_getch() -> GetCh:
@@ -81,11 +81,30 @@ def system_getch() -> GetCh:
     if sys.platform == "win32":
         import msvcrt
 
-        return msvcrt.getwch
+        return make_windows_getch(msvcrt.getwch, msvcrt.kbhit)
     return _posix_getch
 
 
+def make_windows_getch(getwch: GetCh, kbhit: Callable[[], bool]) -> GetCh:
+    """Обёртка над msvcrt.getwch, сворачивающая спецклавиши в SPECIAL_KEY.
+
+    Префикс E0 совпадает с буквой «à». Отличаем по буферу: у спецклавиши
+    второй символ (код клавиши) уже ждёт в буфере, у набранной буквы — нет.
+    """
+
+    def getch() -> str:
+        key = getwch()
+        if key == WINDOWS_PREFIX_ZERO or (key == WINDOWS_PREFIX_E0 and kbhit()):
+            getwch()  # код спецклавиши
+            return SPECIAL_KEY
+        return key
+
+    return getch
+
+
 def _posix_getch() -> str:
+    if not sys.stdin.isatty():
+        return sys.stdin.read(1)
     import termios
     import tty
 
