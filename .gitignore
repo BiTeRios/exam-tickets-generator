@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Рабочие файлы приложений (создаются при запуске)
+journal.xlsx
+results.xlsx
+*.log
+~journal_tmp_*.xlsx
+~results_tmp_*.xlsx
+~$*.xlsx
+~$*.docx
+
+# IDE
+.vscode/
+.idea/
