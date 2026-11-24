@@ -1,169 +1,146 @@
-# Генератор экзаменационных билетов
+# Exam Ticket Generator
 
-Лабораторные работы по ПСИ:
+Two Software Engineering lab assignments share this repository.
 
-- **Лаб 1** — консольное приложение (папка `lab1/`).
-- **Лаб 2** — десктопное приложение на Tkinter (папка `lab2/`, ветка `lab2-ui-tickets`).
+| Lab | Application | Entry point |
+| --- | --- | --- |
+| 1 | Command-line ticket generator with an Excel journal | `python -m lab1` |
+| 2 | Tkinter ticket generator that reads students from Excel and questions from Word | `python -m lab2` |
 
-## Установка
+## Setup
 
-Нужен Python 3.10+ (проверено на 3.14, Windows 11).
+Use Python 3.10 or later. The applications were tested with Python 3.14 on Windows 11.
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
 
-## Лаб 1: консольный генератор
+## Lab 1 — Command-line ticket generator
 
 ```powershell
 python -m lab1
+python -m lab1 --journal D:\journal.xlsx
 ```
 
-Приложение спрашивает `Last name:` и `First name:`, выдаёт случайный билет 1..20
-(`Билет № 7`) и дописывает строку в `lab1/journal.xlsx`. ESC в момент ввода
-завершает работу. Путь к журналу можно поменять: `python -m lab1 --journal D:\journal.xlsx`.
+The application asks for a student’s last and first names, draws a random ticket from 1 to 20, and appends the name, ticket number, and local date and time to `lab1/journal.xlsx`. Use `--journal` to change the output path. Run the application in a terminal so it can detect Esc during either name prompt.
 
-Запускать нужно в настоящей консоли (PowerShell, cmd, Windows Terminal, терминал VS Code):
-ESC перехватывается через `msvcrt.getwch()`.
+```mermaid
+flowchart TD
+    Start([Start]) --> Last[Read last name]
+    Last -->|Valid name| First[Read first name]
+    Last -->|Blank| Last
+    First -->|Blank| First
+    Last -->|Esc| Exit([Exit])
+    First -->|Esc| Exit
+    First -->|Valid name| Draw[Draw and display ticket 1 to 20]
+    Draw --> Save[Append a row to the Excel journal]
+    Save -->|Saved| Last
+    Save -->|Write failed| Retry{Retry or skip?}
+    Retry -->|Enter| Save
+    Retry -->|Esc| Last
+```
 
-### Как устроено
+| Module | Responsibility |
+| --- | --- |
+| `lab1/app.py` | Runs the input, ticket draw, and journal loop |
+| `lab1/console_input.py` | Reads individual keystrokes and handles Enter, Backspace, and Esc |
+| `lab1/journal.py` | Creates the workbook and saves each new row |
 
-| Файл | Что делает |
-|---|---|
-| `lab1/console_input.py` | Собирает строку по нажатиям: Enter, Backspace, ESC. `input()` не видит ESC, поэтому выбран посимвольный ввод (вариант 2 из ТЗ) — ESC работает и на фамилии, и на имени |
-| `lab1/journal.py` | Создаёт `journal.xlsx` с шапкой, дописывает строку и сразу сохраняет |
-| `lab1/app.py` | Основной цикл: ввод → билет → вывод → запись |
+Names are stored as text, including inputs such as `=1+1`. Each append writes a temporary workbook in the journal directory, flushes it with `fsync`, and replaces the original with `os.replace`. If Excel has locked the journal, close it and press Enter to retry, or press Esc to skip that row. A damaged workbook is left in place with an error message. Use one application instance per journal to avoid concurrent writes overwriting one another.
 
-Формат журнала: `Last name | First name | Номер билета | Дата и время`.
-
-**Сохранение после каждой записи.** Книга пишется во временный файл в той же папке,
-сбрасывается на диск (`fsync`) и атомарно подменяет `journal.xlsx` (`os.replace`).
-Если процесс убить в любой момент, `journal.xlsx` останется целым: в нём будут все
-строки, сохранённые до этого. Убийство точно в момент записи может оставить рядом
-временный `~journal_tmp_*.xlsx` — его можно удалить. При внезапном отключении питания
-может потеряться только самая последняя запись, но журнал не повредится.
-
-**Прочие ошибки файла.** Если `journal.xlsx` повреждён (пустой, не xlsx), приложение
-не перезаписывает его, а говорит, что файл нужно переименовать или удалить. Нет прав
-на папку — тоже сообщение и повтор. Фамилия и имя всегда пишутся как текст:
-ввод вида `=1+1` не станет формулой Excel.
-
-**Ограничение.** Две копии приложения, одновременно пишущие в один журнал, не
-поддерживаются: последняя сохранившая копия перезапишет строку другой.
-
-**Файл открыт в Excel.** Excel блокирует файл, подмена падает с `PermissionError`.
-Приложение пишет, что файл занят, и ждёт: Enter — повторить запись, ESC — не сохранять
-эту запись и продолжить работу.
-
-## Лаб 2: генератор билетов с интерфейсом
+## Lab 2 — Desktop ticket generator
 
 ```powershell
 python -m lab2
+python -m lab2 --data-dir D:\exam-data
 ```
 
-Входные файлы лежат в `lab2/data/` (другую папку можно указать через `--data-dir`):
+By default, the app reads and saves files in `lab2/data/`. Use `--data-dir` to select a different directory.
 
-- `students.xlsx` — один лист на группу, имя листа = группа; строка 1 — шапка, дальше
-  A — фамилия, B — имя. В примере три группы, `ИТ-43` специально пустая.
-- `tickets.docx` — абзацы `Билет N`, за ними `1. вопрос`, `2. вопрос`, `3. вопрос`
-  (подходит и автонумерация Word, абзацы внутри таблиц, перенос строки Shift+Enter
-  внутри вопроса). В примере 10 билетов.
+| File | Format |
+| --- | --- |
+| `students.xlsx` | One worksheet per group. Row one contains the headers, with last and first names in columns A and B. The sample contains three groups, including the empty group `ИТ-43`. |
+| `tickets.docx` | A ticket heading such as `Билет 1` followed by three numbered questions. The parser supports Word list numbering, paragraphs in tables, and soft line breaks. The sample contains ten tickets. |
+| `results.xlsx` | One row per issuance, with group, last name, first name, ticket number, local date and time, and a repeat flag (`да` or `нет`). |
+| `lab2.log` | Parsing and application events. |
 
-Пересоздать примеры: `python tools/make_sample_data.py`.
+Run `python tools/make_sample_data.py` to regenerate the sample inputs.
 
-Результаты пишутся в `lab2/data/results.xlsx`:
-`Группа | Фамилия | Имя | Номер билета | Дата и время | Повтор (да/нет)`.
-Лог разбора и работы — `lab2/data/lab2.log`.
+Select a group and a student to enable ticket generation. For a first issuance, the app randomly selects a valid ticket. For a repeat, it reuses the number from the first journal entry for the same group and name, ignoring case and surrounding whitespace. Each issuance adds a new row before the result window opens. Use **Закрыть (Esc)** or press Esc to close the result and return to the form.
 
-### Как работает
+```mermaid
+sequenceDiagram
+    actor Examiner
+    participant UI as Tkinter window
+    participant App as Controller
+    participant Input as Excel and Word readers
+    participant Log as Excel results journal
+    UI->>App: Load groups, students, and tickets
+    App->>Input: Read students.xlsx and tickets.docx
+    Input-->>App: Return groups and valid tickets
+    App-->>UI: Populate group selector
+    Examiner->>UI: Select a group and student
+    Examiner->>UI: Generate ticket
+    UI->>App: Request assignment
+    App->>Log: Look up the first issuance
+    alt First issuance exists
+        Log-->>App: Original ticket number
+        App->>App: Reuse ticket number
+    else New student
+        Log-->>App: No matching row
+        App->>App: Draw a valid ticket
+    end
+    App->>Log: Append and save result
+    Log-->>App: Save succeeds
+    App-->>UI: Return ticket number and questions
+    UI-->>Examiner: Open result window
+```
 
-1. При запуске первый список заполняется листами `students.xlsx`.
-2. После выбора группы второй список заполняется студентами «Фамилия Имя».
-3. Кнопка «Сгенерировать билет» активна только когда выбраны и группа, и студент.
-4. По кнопке строка сразу дописывается в `results.xlsx`, затем открывается окно
-   «Ваш билет № N» с тремя вопросами. ESC закрывает это окно, приложение остаётся открытым.
-5. Если студент (группа + фамилия + имя, без учёта регистра и пробелов по краям) уже есть
-   в журнале, выдаётся номер из его **первой** записи, новая строка получает «да» в колонке
-   «Повтор». Иначе билет выбирается случайно из корректных билетов файла, «Повтор» = «нет».
+### Error handling
 
-### Устойчивость
+| Situation | Behavior |
+| --- | --- |
+| Missing or unreadable input | The app shows an error and offers to reload the input files. Ticket generation stays disabled. |
+| Empty group | The student selector and generate button stay disabled. |
+| Invalid ticket heading, duplicate number, or fewer than three questions | The parser skips the ticket, records the error, and continues. |
+| More than three questions | The parser keeps the first three and logs a warning. |
+| Results journal locked by Excel | The app offers to retry after the workbook is closed. Cancel leaves the ticket unissued. |
+| Damaged results journal | The app reports the problem and preserves the workbook. |
+| Previously assigned number is absent from the current Word document | The result shows the original number and explains that its questions are unavailable. |
 
-| Ситуация | Поведение |
-|---|---|
-| Нет или битый `students.xlsx` / `tickets.docx` | Сообщение, списки неактивны, кнопка «Перезагрузить файлы» |
-| В группе нет студентов | Второй список пуст и неактивен, кнопка неактивна |
-| Билет с < 3 вопросами, нераспознанный заголовок, дубликат номера | Билет пропускается, ошибка в `lab2.log`, работа продолжается. Вопросы после плохого заголовка не приклеиваются к предыдущему билету |
-| У билета > 3 вопросов | Берутся первые три, предупреждение в лог |
-| `results.xlsx` открыт в Excel | «Закройте файл и нажмите Повторить»; при отмене билет не выдаётся |
-| `results.xlsx` повреждён | Сообщение, файл не перезаписывается |
-| Номер из первой записи пропал из `tickets.docx` | Показывается номер и сообщение, что вопросов нет |
+The results journal uses the same atomic save procedure as Lab 1. It stores group and name fields as text.
 
-Запись атомарная, как в лаб 1: временный файл → `fsync` → `os.replace`. Текстовые поля
-пишутся как текст, поэтому имя вида `=1+1` не станет формулой.
+| Module | Responsibility |
+| --- | --- |
+| `lab2/students.py` | Reads group sheets and student names |
+| `lab2/tickets.py` | Parses ticket headings and questions from Word |
+| `lab2/results.py` | Looks up first issuances and appends journal rows |
+| `lab2/controller.py` | Tracks selections and assigns tickets |
+| `lab2/ui.py` | Presents the selection form, dialogs, and ticket window |
 
-### Устройство
+The development workflow started with an [English implementation prompt](docs/lab2_prompt_en.md), then added file readers, the controller, the interface, and tests. The `lab2-ui-tickets` branch was merged into `main` through a pull request.
 
-| Файл | Что делает |
-|---|---|
-| `lab2/students.py` | Чтение групп и студентов |
-| `lab2/tickets.py` | Разбор билетов из Word |
-| `lab2/results.py` | Поиск первой выдачи и дозапись в журнал |
-| `lab2/controller.py` | Правила приложения без Tkinter: выбор, доступность кнопки, назначение билета |
-| `lab2/ui.py` | Окна Tkinter, вызывают контроллер |
-
-### Порядок выполнения лаб 2
-
-1. **Prompt Engineering** — ТЗ переведено в точный английский промпт:
-   [`docs/lab2_prompt_en.md`](docs/lab2_prompt_en.md).
-2. **Разработка** — код сгенерирован ИИ-агентом по этому промпту, по модулю на коммит.
-3. **Unit-тесты** — `tests/lab2/`: парсинг билета из Word, поиск студентов по группе,
-   идемпотентность (повторный выбор → тот же билет, новая строка с «да»), журнал,
-   блокировка файла, отсутствие файлов, правила кнопки и закрытие окна по ESC
-   (на настоящем Tkinter).
-4. **Git** — ветка `lab2-ui-tickets`, слияние в `main` через Pull Request.
-
-Проверено вручную: интерфейс запущен, сценарий «группа → студент → билет → ESC →
-повтор → пустая группа» пройден; блокировка проверена на настоящем Excel
-(файл открыт через COM — `ResultsLockedError`, журнал не изменился).
-
-## Тесты
+## Tests
 
 ```powershell
 python -m pytest
 ```
 
-Все тесты обеих лабораторных запускаются одной командой выше. Тесты лаб 1 проверяют: создание журнала с шапкой, дозапись без изменения
-старых строк, повторный запуск, сохранение до ввода следующего студента (имитация
-аварии), обработку занятого и повреждённого файла, защиту от формул, пустой ввод,
-обрезку пробелов, ESC, Backspace, спецклавиши Windows и букву «à».
+Lab 1 tests cover key handling, input validation, ticket generation, and immediate journal writes across sessions and during failures. Lab 2 tests cover parsing, group selection, repeat assignments, journal errors, and interactions with real Tkinter widgets.
 
-### Ручная проверка лаб 1 по ТЗ
+### Manual checks
 
-1. Запустить, ввести трёх студентов, выйти по ESC — в файле три строки и шапка.
-2. Запустить снова, ввести двух студентов — пять строк, первые три не изменились.
-3. Ввести студента и закрыть окно консоли / снять процесс в диспетчере задач — запись осталась.
-4. Открыть `lab1/journal.xlsx` в Excel и ввести студента — сообщение о занятом файле, без падения.
-5. Нажать Enter на пустом поле — запрос повторяется.
+1. Enter three students in Lab 1, exit with Esc, and verify that the journal contains three data rows. Restart, add two more, and verify that the original rows remain in place.
+2. Force-close the Lab 1 terminal after a save and reopen the journal. Confirm that the saved row is present.
+3. Try to issue a ticket with the corresponding journal open in Excel. Close the workbook and retry.
+4. In Lab 2, select a group and student, generate a ticket, and close the result with Esc. Issue again and check that the same number is recorded in a new row marked `да`. Verify that the empty sample group keeps generation disabled.
 
-Проверка 4 выполнена на настоящем Excel (Microsoft 365): файл открыт через COM,
-запись отклонена с понятным сообщением, после закрытия Excel строка дописалась.
+The original verification included opening both journals in Microsoft Excel through COM to exercise the file-locking behavior.
 
-## Использование ИИ
+## AI assistance
 
-Код, тесты и README сгенерированы ИИ-агентом Claude Code (модель Claude Opus 5.5)
-по тексту ТЗ. Человек задал рамки: язык, репозиторий, публикацию.
+Claude Code (Claude Opus 5.5) generated the original implementation, tests, and documentation from the lab assignments. The author chose the language and repository and handled publication. The instructor allowed Claude Code for the prompt, implementation, and test steps.
 
-В ТЗ лаб 2 упомянуты ChatGPT/Gemini для промпта и Copilot Chat (`Ctrl+I`, `/tests`) для
-кода и тестов. По указанию преподавателя можно использовать любой генеративный ИИ, поэтому
-все шаги выполнены в Claude Code: промпт — шаг 1, код — шаг 2, тесты — шаг 3.
-
-Что ИИ сделал не так с первого раза (нашла независимая проверка, исправлено):
-битый `journal.xlsx` ронял приложение; имя `=1+1` записывалось как формула Excel;
-ошибки записи кроме блокировки не обрабатывались; буква «à» путалась с префиксом
-спецклавиш Windows; один UI-тест иногда пропускался, потому что Tk повторно не находил
-`init.tcl`; первый вариант съёмки скриншотов UI зависал (взаимная блокировка
-`PrintWindow` и цикла Tk). Вторая проверка нашла в разборе Word: вопрос с переносом
-Shift+Enter выкидывал весь билет, таблицы не читались, «2.5 секунды» обрезалось до
-«5 секунды», абзац со снятой нумерацией считался вопросом — исправлено, добавлены тесты.
+Review of the original implementation led to fixes for damaged journals, Excel formula interpretation, Windows keyboard input, Tkinter test setup, and Word parsing of tables, soft breaks, decimal numbers, and removed numbering. The follow-up refreshed the Lab 2 interface and added the diagrams above.
